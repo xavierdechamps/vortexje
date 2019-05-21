@@ -1,1 +1,6 @@
 build
+install
+README_COMPILE.txt
+
+*.dll
+*.dll.a

@@ -22,6 +22,8 @@ using namespace std;
 using namespace Eigen;
 using namespace Vortexje;
 
+static const double pi = 3.141592653589793238462643383279502884;
+
 #define N_BLADES        3
 #define ROTOR_RADIUS    5.5320
 #define TIP_SPEED_RATIO 3
@@ -47,7 +49,7 @@ public:
         vector<vector<int> > panel_strips;
         
         for (int i = 0; i < (int) blade_dr.size(); i++) {
-            vector<Vector3d, Eigen::aligned_allocator<Vector3d> > airfoil_points;
+            vector_aligned<Vector3d> airfoil_points;
             for (int j = 0; j < (int) unscaled_airfoil_points.size(); j++) {
                 Vector3d airfoil_point(blade_chord[i] * (unscaled_airfoil_points[j](0) - 0.25),
                                        blade_thickness[i] / unscaled_airfoil_thickness * unscaled_airfoil_points[j](1),
@@ -71,11 +73,11 @@ public:
 
         surface_builder.finish(node_strips, panel_strips, trailing_edge_point_id);
         
-        rotate(Vector3d::UnitZ(), -M_PI / 2.0);
+        rotate(Vector3d::UnitZ(), -pi / 2.0);
     }
     
 private:
-    vector<Vector3d, Eigen::aligned_allocator<Vector3d> > unscaled_airfoil_points;
+    vector_aligned<Vector3d> unscaled_airfoil_points;
     double unscaled_airfoil_thickness;
     
     int trailing_edge_point_id;
@@ -89,8 +91,8 @@ private:
     void
     read_airfoil(const std::string &filename)
     {
-        vector<Vector3d, Eigen::aligned_allocator<Vector3d> > upper_points;
-        vector<Vector3d, Eigen::aligned_allocator<Vector3d> > lower_points;
+        vector_aligned<Vector3d> upper_points;
+        vector_aligned<Vector3d> lower_points;
         
         // Parse file:
         ifstream f;
@@ -179,7 +181,7 @@ private:
                 
                 blade_dr.push_back(dr);
                 blade_chord.push_back(chord);
-                blade_twist.push_back(M_PI * twist / 180.0);
+                blade_twist.push_back(pi * twist / 180.0);
                 blade_thickness.push_back(thick);
             }
         }
@@ -212,7 +214,7 @@ public:
             ss << "blade_" << i;
             shared_ptr<Blade> blade(new Blade(ss.str()));
             
-            double theta_blade = theta_0 + 2 * M_PI / n_blades * i;
+            double theta_blade = theta_0 + 2 * pi / n_blades * i;
             blade->rotate(Vector3d::UnitX(), theta_blade);
             
             blade->translate(position);

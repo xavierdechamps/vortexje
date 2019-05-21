@@ -42,7 +42,7 @@ GmshSurfaceWriter::file_extension() const
 bool
 GmshSurfaceWriter::write(const std::shared_ptr<Surface> &surface, const string &filename, 
                          int node_offset, int panel_offset,
-                         const std::vector<std::string> &view_names, const vector<MatrixXd, Eigen::aligned_allocator<MatrixXd> > &view_data)
+                         const std::vector<std::string> &view_names, const vector_aligned<MatrixXd> &view_data)
 {
     cout << "Surface " << surface->id << ": Saving to " << filename << "." << endl;
     
@@ -56,13 +56,44 @@ GmshSurfaceWriter::write(const std::shared_ptr<Surface> &surface, const string &
     
     f << "$Nodes" << endl;
     f << surface->n_nodes() << endl;
+
+    // reorganize the nodes to work with gmsh-surface-loader
+    vector<int> to_sorted(surface->n_nodes());
+    size_t n(0);
+    generate(std::begin(to_sorted), std::end(to_sorted), [&]{ return n++; });
+
+    if (sort_vertices)
+        std::sort(std::begin(to_sorted),
+                  std::end(to_sorted),
+                  [&](int i1, int i2)
+      {
+        // not sorted if span (z) not ascending
+        if (surface->nodes[i1](2) != surface->nodes[i2](2))
+            return surface->nodes[i1](2) < surface->nodes[i2](2);
+
+        // not sorted if first is lower surface (y<0) and second is upper surface (y>-0)
+        if ((surface->nodes[i1](1)>=0) != (surface->nodes[i2](1)>=0))
+            return surface->nodes[i1](1) > surface->nodes[i2](1);
+
+        // sort ascending by chord (x) if both are upper surface
+        if (surface->nodes[i1](1) >= 0 && surface->nodes[i2](1) >= 0)
+            return surface->nodes[i1](0) < surface->nodes[i2](0);
+        // sort descending by chord (x) otherwise
+        else
+            return surface->nodes[i1](0) > surface->nodes[i2](0);
+      });
+
+    // map sorted to unsorted indices
+    map<int,int> to_unsorted;
+    for (int i = 0; i < surface->n_nodes(); i++)
+        to_unsorted[to_sorted[i]] = i;
     
     for (int i = 0; i < surface->n_nodes(); i++) {
         f << i + node_offset + 1;
         
         for (int j = 0; j < 3; j++) {
             f << ' ';
-            f << surface->nodes[i](j);
+            f << surface->nodes[to_sorted[i]](j);
         }
         
         f << endl;
@@ -98,7 +129,7 @@ GmshSurfaceWriter::write(const std::shared_ptr<Surface> &surface, const string &
         
         for (int j = 0; j < (int) surface->panel_nodes[i].size(); j++) {
             f << ' ';
-            f << surface->panel_nodes[i][j] + node_offset + 1;
+            f << to_unsorted[surface->panel_nodes[i][j]] + node_offset + 1;
         }
         
         f << endl;

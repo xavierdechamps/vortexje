@@ -28,7 +28,9 @@ set(HDRS
 	lifting-surface-builder.hpp 
 	surface-loader.hpp
 	surface-writer.hpp 
-	field-writer.hpp)
+	field-writer.hpp
+    numeric-stream.hpp
+    vector-aligned.hpp)
 
 add_library(vortexje SHARED ${SRCS}
     $<TARGET_OBJECTS:boundary-layers>

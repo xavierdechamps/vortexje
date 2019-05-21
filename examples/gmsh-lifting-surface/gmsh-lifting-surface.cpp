@@ -98,7 +98,7 @@ main (int argc, char **argv)
     int step_number = 0;
     
     solver.initialize_wakes(dt);
-    while (t < 60) {
+    while (t < 2) {
         // Solve:
         solver.solve(dt);
         
@@ -106,7 +106,7 @@ main (int argc, char **argv)
         solver.log(step_number, surface_writer);
         
         // Enable below to log the velocity field:
-        // field_writer.write_velocity_field(solver, "velocity-field.vtk", 0.1, 0.1, 0.1, 0.2, 0.2, 0.2);
+        field_writer.write_velocity_field(solver, "velocity-field.vtk", 0.1, 0.1, 0.1, 0.2, 0.2, 0.2, 0.01, 0.01, 0.01);
         
         // Update wake:
         solver.update_wakes(dt);
