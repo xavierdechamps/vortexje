@@ -1,6 +1,9 @@
 build
+build*
 install
 README_COMPILE.txt
 
+*.dat
+*.cmake
 *.dll
 *.dll.a

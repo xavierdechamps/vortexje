@@ -36,6 +36,7 @@ public:
     std::shared_ptr<LiftingSurface> lifting_surface;
     
     virtual void add_layer();
+    virtual bool delete_last_layer() ;
     
     void translate_trailing_edge(const Eigen::Vector3d &translation);
     void transform_trailing_edge(const Eigen::Transform<double, 3, Eigen::Affine> &transformation);
@@ -43,6 +44,8 @@ public:
     virtual void update_properties(double dt);
     
     virtual Eigen::Vector3d vortex_ring_unit_velocity(const Eigen::Vector3d &x, int this_panel) const;
+    
+    void motion_beam_nodes(const double &time, const double &dt,const vector_aligned< Eigen::Transform<double, 3, Eigen::Affine> > &transforms_TE);
     
     /**
        Strengths of the doublet, or vortex ring, panels.

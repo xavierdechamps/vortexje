@@ -62,6 +62,9 @@ Solver::Solver(const string &log_folder) : log_folder(log_folder)
     // Initialize fluid density:
     fluid_density = 0.0;
     
+    // Initialize static pressure:
+    static_pressure = 0.0;
+    
     // Total number of panels:
     n_non_wake_panels = 0;
         
@@ -140,8 +143,14 @@ Solver::add_body(std::shared_ptr<Body> body, std::shared_ptr<BoundaryLayer> boun
     pressure_coefficients.resize(n_non_wake_panels);
     pressure_coefficients.setZero();
     
+    pressures.resize(n_non_wake_panels);
+    pressures.setZero();
+    
     previous_surface_velocity_potentials.resize(n_non_wake_panels);
     previous_surface_velocity_potentials.setZero();
+    
+    previous_previous_surface_velocity_potentials.resize(n_non_wake_panels);
+    previous_previous_surface_velocity_potentials.setZero();
 
     // Open logs:
     string body_log_folder = log_folder + "/" + body->id;
@@ -193,6 +202,17 @@ void
 Solver::set_fluid_density(double value)
 {
     fluid_density = value;
+}
+
+/**
+   Sets the static pressure.
+   
+   @param[in]   value   Static pressure.
+*/
+void
+Solver::set_static_pressure(double value)
+{
+    static_pressure = value;
 }
 
 /**
@@ -284,6 +304,26 @@ Solver::pressure_coefficient(const shared_ptr<Surface> &surface, int panel) cons
 }
 
 /**
+   Returns the pressure [Pascal] for the given panel.
+   
+   @param[in]   surface   Reference surface.
+   @param[in]   panel     Reference panel.
+  
+   @returns Pressure coefficient.
+*/
+double
+Solver::pressure(const shared_ptr<Surface> &surface, int panel) const
+{
+    int index = compute_index(surface, panel);
+    if (index >= 0)
+        return pressures(index);
+    
+    cerr << "Solver::pressure():  Panel " << panel << " not found on surface " << surface->id << "." << endl;
+    
+    return 0.0;
+}
+
+/**
    Computes the force caused by the pressure distribution on the given body.
    
    @param[in]   body   Reference body.
@@ -294,8 +334,9 @@ Eigen::Vector3d
 Solver::force(const std::shared_ptr<Body> &body) const
 {
     // Dynamic pressure:
-    double q = 0.5 * fluid_density * compute_reference_velocity_squared(body);
-        
+//    double q = 0.5 * fluid_density * compute_reference_velocity_squared(body);
+    double q;
+    
     // Total force on body:
     Vector3d F(0, 0, 0);
     int offset = 0;
@@ -305,8 +346,10 @@ Solver::force(const std::shared_ptr<Body> &body) const
         const shared_ptr<Body::SurfaceData> &d = *si;
         
         const shared_ptr<BodyData> &bd = surface_to_body.find(d->surface)->second;
-        if (body == bd->body) {        
+        if (body == bd->body) {
             for (int i = 0; i < d->surface->n_panels(); i++) {
+                q = 0.5 * fluid_density * compute_local_reference_velocity_squared(body, d->surface, i) ;
+                
                 const Vector3d &normal = d->surface->panel_normal(i);
                 double surface_area = d->surface->panel_surface_area(i);
                 F += q * surface_area * pressure_coefficients(offset + i) * normal;
@@ -344,9 +387,12 @@ Solver::force(const std::shared_ptr<Surface> &surface) const
             const shared_ptr<BodyData> &bd = surface_to_body.find(d->surface)->second;
             
             // Dynamic pressure:
-            double q = 0.5 * fluid_density * compute_reference_velocity_squared(bd->body);
-                 
+//            double q = 0.5 * fluid_density * compute_reference_velocity_squared(bd->body);
+            double q;
+            
             for (int i = 0; i < d->surface->n_panels(); i++) {
+                q = 0.5 * fluid_density * compute_local_reference_velocity_squared(bd->body, d->surface, i) ;
+                
                 const Vector3d &normal = d->surface->panel_normal(i);
                 double surface_area = d->surface->panel_surface_area(i);
                 F += q * surface_area * pressure_coefficients(offset + i) * normal;
@@ -364,6 +410,64 @@ Solver::force(const std::shared_ptr<Surface> &surface) const
     return F;      
 }
 
+
+/**
+   Computes the force caused by the pressure distribution on the given surface
+   
+   @param[in]   surf   Reference surface.
+  
+   @returns Force per span vector.
+*/
+vector_aligned<Eigen::Vector3d>
+Solver::force_per_span(const std::shared_ptr<LiftingSurface> &surface) const
+{    
+    // Total force on body:
+    vector_aligned<Eigen::Vector3d> F ;
+    int offset = 0;
+    
+    bool found = false;
+    vector<shared_ptr<BodyData> >::const_iterator bdi;
+    for (bdi = bodies.begin(); bdi != bodies.end(); bdi++) {
+        const shared_ptr<BodyData> &bd = *bdi;
+        
+        vector<shared_ptr<Body::LiftingSurfaceData> >::iterator lsi;
+        for (lsi = bd->body->lifting_surfaces.begin(); lsi != bd->body->lifting_surfaces.end(); lsi++) {
+            const shared_ptr<Body::LiftingSurfaceData> &d = *lsi;
+            
+            if (d->lifting_surface == surface) {
+                assert( d->lifting_surface->beam_is_there );
+                
+                found = true;
+                
+                double q;
+                int indsurf = 0;
+                for (int i = 0; i < d->lifting_surface->n_spanwise_panels() ; i++ ) {
+                    double length = ( d->lifting_surface->beam_nodes[i+1] - d->lifting_surface->beam_nodes[i] ).norm() ;
+                    Eigen::Vector3d localForce (0. , 0. , 0.) ;
+                    for (int j = 0; j < d->lifting_surface->n_chordwise_panels() ; j++ ) {
+                        q = 0.5 * fluid_density * compute_local_reference_velocity_squared(bd->body, d->lifting_surface, indsurf) ;
+                        Vector3d normal = d->lifting_surface->panel_normal(indsurf);
+                        double surface_area = d->lifting_surface->panel_surface_area(indsurf);
+                        localForce += q * surface_area * pressure_coefficients(offset + indsurf) * normal ;
+                        indsurf ++ ;
+                    }
+//                    F.push_back (localForce ) ;
+                    F.push_back (localForce / length) ;
+//                    cout << d->lifting_surface->beam_nodes_collocation[i].norm() << " " << localForce(0) << " " << length << "\n";
+                }
+//                cout << "********************************"<<endl;
+                break;
+            }
+            offset += d->lifting_surface->n_panels();
+        }
+        if (found)
+            break;
+    }
+                    
+    // Done:
+    return F;  
+}
+
 /**
    Computes the moment caused by the pressure distribution on the given body, relative to the given point.
    
@@ -376,8 +480,9 @@ Eigen::Vector3d
 Solver::moment(const std::shared_ptr<Body> &body, const Eigen::Vector3d &x) const
 {
     // Dynamic pressure:
-    double q = 0.5 * fluid_density * compute_reference_velocity_squared(body);
-        
+//    double q = 0.5 * fluid_density * compute_reference_velocity_squared(body);
+    double q;
+    
     // Total moment on body:
     Vector3d M(0, 0, 0);
     int offset = 0;
@@ -388,7 +493,9 @@ Solver::moment(const std::shared_ptr<Body> &body, const Eigen::Vector3d &x) cons
         
         const shared_ptr<BodyData> &bd = surface_to_body.find(d->surface)->second;
         if (body == bd->body) { 
-            for (int i = 0; i < d->surface->n_panels(); i++) {                                    
+            for (int i = 0; i < d->surface->n_panels(); i++) {    
+                q = 0.5 * fluid_density * compute_local_reference_velocity_squared(body, d->surface, i) ;
+                
                 const Vector3d &normal = d->surface->panel_normal(i);
                 double surface_area = d->surface->panel_surface_area(i);
                 Vector3d F = q * surface_area * pressure_coefficients(offset + i) * normal;
@@ -430,9 +537,12 @@ Solver::moment(const std::shared_ptr<Surface> &surface, const Eigen::Vector3d &x
             const shared_ptr<BodyData> &bd = surface_to_body.find(d->surface)->second;
             
             // Dynamic pressure:
-            double q = 0.5 * fluid_density * compute_reference_velocity_squared(bd->body);
+//            double q = 0.5 * fluid_density * compute_reference_velocity_squared(bd->body);
+            double q;
             
-            for (int i = 0; i < d->surface->n_panels(); i++) {                                    
+            for (int i = 0; i < d->surface->n_panels(); i++) {  
+                q = 0.5 * fluid_density * compute_local_reference_velocity_squared(bd->body, d->surface, i) ;
+                                                  
                 const Vector3d &normal = d->surface->panel_normal(i);
                 double surface_area = d->surface->panel_surface_area(i);
                 Vector3d F = q * surface_area * pressure_coefficients(offset + i) * normal;
@@ -451,6 +561,107 @@ Solver::moment(const std::shared_ptr<Surface> &surface, const Eigen::Vector3d &x
     
     // Done:
     return M;
+}
+
+/**
+   Computes the effective angle of attack (angle between the chord line and
+   the total velocity)
+   
+   @param[in]   surf   Reference surface.
+  
+   @returns Effective angle of attack in radian.
+*/
+vector_aligned<double>
+Solver::get_effective_angle_attack(const std::shared_ptr<LiftingSurface> &surface) const
+{
+    vector_aligned<double> F ;
+    
+    vector_aligned<Eigen::Vector3d> beam_forces = force_per_span(surface);
+    
+    bool found = false;
+    vector<shared_ptr<BodyData> >::const_iterator bdi;
+    for (bdi = bodies.begin(); bdi != bodies.end(); bdi++) {
+        const shared_ptr<BodyData> &bd = *bdi;
+        
+        vector<shared_ptr<Body::LiftingSurfaceData> >::iterator lsi;
+        for (lsi = bd->body->lifting_surfaces.begin(); lsi != bd->body->lifting_surfaces.end(); lsi++) {
+            const shared_ptr<Body::LiftingSurfaceData> &d = *lsi;
+            
+            if (d->lifting_surface == surface) {
+                assert( d->lifting_surface->beam_is_there );
+                
+                found = true;
+                
+                for (int i = 0; i < d->lifting_surface->n_spanwise_panels() ; i++ ) {
+//                    Eigen::Vector3d localVelocity (0. , 0. , 0.) ;
+                    Eigen::Vector3d localChord (0. , 0. , 0.) ;
+                    Eigen::Vector3d flowdirection (1. , 0. , 0.) ;
+                    
+                    // index of the leading edge panel on upper side
+//                    int panel = d->lifting_surface->upper_panels(0, i);
+                    
+                    // Vector for the Chord line = trailing edge - leading edge
+                    localChord = d->lifting_surface->nodes[d->lifting_surface->upper_nodes(d->lifting_surface->upper_nodes.rows() - 1, i)] - 
+                                 d->lifting_surface->nodes[d->lifting_surface->upper_nodes(                                         0, i)] ;
+                    
+                    assert ( localChord.norm()>0 ) ;
+                    
+                    Eigen::Vector3d localTangent ( 0. , localChord(1) , localChord(2) ) ;
+                    localTangent.normalize();
+                    
+                    // Geometric angle (pitch + twist) between airfoil and rotor plane
+                    double geom_angle = asin ( ( localChord.dot(flowdirection) ) / ( localChord.norm() ) ) ;
+                    
+                    double FN = beam_forces[i](0);
+                    
+                    double FT = beam_forces[i].dot(localTangent);
+//                    double FT = sqrt( beam_forces[i](1)*beam_forces[i](1) + beam_forces[i](2)*beam_forces[i](2) ) ;
+
+                    double alpha = atan( FT / FN ) - geom_angle ;
+                    
+/*                    cout << " FT / FN / geom angle " << i << " " << FT << " "<< FN << " " << geom_angle <<endl;
+                    cout << " Local tangent        " << i<< " " << localTangent(0) << " " << localTangent(1) << " " << localTangent(2) <<endl;
+                    cout << "------------------------------------------------------------------------------------------ \n";
+*/
+                    
+                    // Total velocity = inflow + rotational speed + induced velocity
+                    //    inflow = freestream_velocity
+                    //    rotational speed = body->panel_kinematic_velocity()
+                    //    induced velocity = - grad ( mu )
+//                    localVelocity = freestream_velocity + 
+//                                    bd->body->panel_kinematic_velocity(d->lifting_surface, panel) +
+//                                    - compute_scalar_field_gradient(doublet_coefficients, bd->body, d->lifting_surface, panel);
+                    
+//                    Eigen::Vector3d V1 = freestream_velocity;
+//                    Eigen::Vector3d V2 = bd->body->panel_kinematic_velocity(d->lifting_surface, panel) ;
+//                    Eigen::Vector3d V3 = - compute_scalar_field_gradient(doublet_coefficients, bd->body, d->lifting_surface, panel) ;
+                    
+//                    localVelocity = compute_surface_velocity(bd->body, d->lifting_surface, panel);
+                    
+/*                    cout << " Local velocity   " << i<< " " << localVelocity(0) << " "<< " " << localVelocity(1) << " " << localVelocity(2) <<endl;
+                    cout << " .. Freestream    " << i<< " " << V1(0) << " "<< " " << V1(1) << " " << V1(2) <<endl;
+                    cout << " .. Kinematic     " << i<< " " << V2(0) << " "<< " " << V2(1) << " " << V2(2) <<endl;
+                    cout << " .. Induced       " << i<< " " << V3(0) << " "<< " " << V3(1) << " " << V3(2) <<endl;
+                    cout << " Local chord line " << i<< " " << localChord(0) << " "<< " " << localChord(1) << " " << localChord(2) <<endl;
+                    cout << "------------------------------------------------------------------------------------------ \n";
+*/                    
+//                    assert ( localVelocity.norm()>0 ) ;
+                    
+                    // alpha is the effective angle between the chord line and the total velocity at the leading edge
+//                    double alpha = acos ( ( localVelocity.dot(localChord) ) / ( localVelocity.norm() * localChord.norm() ) ) ;
+                    
+                    F.push_back ( alpha ) ;
+                }
+                // exit the loop on the lifting surfaces
+                break;
+            }
+        }
+        if (found)
+            break;
+    }
+                    
+    // Done:
+    return F;  
 }
 
 /**
@@ -639,9 +850,20 @@ Solver::initialize_wakes(double dt)
    @returns true on success.
 */
 bool
-Solver::solve(double dt, bool propagate)
+Solver::solve(const double dt, const int time_step, bool propagate)
 {
     int offset;
+    
+    // For the iterative Kutta condition
+/*
+    int iter_kutta_step     = 0 ;
+    double iter_kutta_error = 0.;
+    int num_blades          = bodies[0]->body->lifting_surfaces.size();
+    int num_chord_panels    = bodies[0]->body->lifting_surfaces[0]->lifting_surface->n_spanwise_panels();
+    double iter_K          [num_blades][num_chord_panels];
+    double iter_DeltaCP_old[num_blades][num_chord_panels];
+    double iter_DeltaCP    [num_blades][num_chord_panels];
+*/
     
     // Iterate inviscid and boundary layer solutions until convergence.
     VectorXd previous_source_coefficients;
@@ -668,7 +890,10 @@ Solver::solve(double dt, bool propagate)
             
             #pragma omp parallel
             {
-                #pragma omp for schedule(dynamic, 1)
+#if defined(_OPENMP)
+                int chunk_size = d->surface->n_panels() / omp_get_num_threads();
+#endif 
+                #pragma omp for schedule(static, chunk_size)
                 for (i = 0; i < d->surface->n_panels(); i++)
                     source_coefficients(offset + i) = compute_source_coefficient(bd->body, d->surface, i, bd->boundary_layer, true);
             }
@@ -695,10 +920,14 @@ Solver::solve(double dt, bool propagate)
             for (si_col = non_wake_surfaces.begin(); si_col != non_wake_surfaces.end(); si_col++) {
                 shared_ptr<Body::SurfaceData> d_col = *si_col;
                 int i, j;
-                
+
+
                 #pragma omp parallel private(j) 
-                {
-                    #pragma omp for schedule(dynamic, 1)
+                {   
+#if defined(_OPENMP)
+                    int chunk_size = d_row->surface->n_panels() * d_col->surface->n_panels() / omp_get_num_threads();
+#endif                    
+                    #pragma omp for schedule(static, chunk_size) collapse(2)
                     for (i = 0; i < d_row->surface->n_panels(); i++) {
                         for (j = 0; j < d_col->surface->n_panels(); j++) {
                             d_col->surface->source_and_doublet_influence(d_row->surface, i, j,
@@ -721,7 +950,10 @@ Solver::solve(double dt, bool propagate)
             
             #pragma omp parallel private(bdi, si, lsi, lifting_surface_offset, j, wake_panel_offset, pa, pb, bd, d)
             {
-                #pragma omp for schedule(dynamic, 1)
+#if defined(_OPENMP)
+                int chunk_size = d_row->surface->n_panels() / omp_get_num_threads();
+#endif
+                #pragma omp for schedule(static, chunk_size)
                 for (i = 0; i < d_row->surface->n_panels(); i++) {
                     lifting_surface_offset = 0;      
                     
@@ -741,8 +973,12 @@ Solver::solve(double dt, bool propagate)
                                 
                                 // Account for the influence of the new wake panels.  The doublet strength of these panels
                                 // is set according to the Kutta condition.
+                                
                                 A(offset_row + i, lifting_surface_offset + pa) += d->wake->doublet_influence(d_row->surface, i, wake_panel_offset + j);
                                 A(offset_row + i, lifting_surface_offset + pb) -= d->wake->doublet_influence(d_row->surface, i, wake_panel_offset + j);
+                                
+//                                if (pa==i)
+//                                  cout << "Mat A , " << lsi - bd->body->lifting_surfaces.begin() << " "<< d->wake->doublet_influence(d_row->surface, i, wake_panel_offset + j) << endl;
                             }
                             
                             lifting_surface_offset += d->lifting_surface->n_panels();
@@ -776,6 +1012,8 @@ Solver::solve(double dt, bool propagate)
 
         // Check for convergence from second iteration onwards.
         bool converged = false;
+        
+/*
         if (boundary_layer_iteration > 0) {
             double delta = (source_coefficients - previous_source_coefficients).norm();
             
@@ -784,46 +1022,13 @@ Solver::solve(double dt, bool propagate)
             if (delta < Parameters::boundary_layer_iteration_tolerance)
                 converged = true;
         }
-        
-        // Set new wake panel doublet coefficients:
-        cout << "Solver: Updating wake doublet distribution." << endl;
-        
-        offset = 0;
-        
-        vector<shared_ptr<BodyData> >::iterator bdi;
-        for (bdi = bodies.begin(); bdi != bodies.end(); bdi++) {
-            shared_ptr<BodyData> bd = *bdi;
-            
-            vector<shared_ptr<Body::SurfaceData> >::iterator si;
-            for (si = bd->body->non_lifting_surfaces.begin(); si != bd->body->non_lifting_surfaces.end(); si++)
-                offset += (*si)->surface->n_panels();
-            
-            vector<shared_ptr<Body::LiftingSurfaceData> >::iterator lsi;
-            for (lsi = bd->body->lifting_surfaces.begin(); lsi != bd->body->lifting_surfaces.end(); lsi++) {
-                shared_ptr<Body::LiftingSurfaceData> d = *lsi;
-                         
-                // Set panel doublet coefficient:
-                for (int i = 0; i < d->lifting_surface->n_spanwise_panels(); i++) {
-                    double doublet_coefficient_top    = doublet_coefficients(offset + d->lifting_surface->trailing_edge_upper_panel(i));
-                    double doublet_coefficient_bottom = doublet_coefficients(offset + d->lifting_surface->trailing_edge_lower_panel(i));
-                    
-                    // Use the trailing-edge Kutta condition to compute the doublet coefficients of the new wake panels.
-                    double doublet_coefficient = doublet_coefficient_top - doublet_coefficient_bottom;
-                    
-                    int idx = d->wake->n_panels() - d->lifting_surface->n_spanwise_panels() + i;
-                    d->wake->doublet_coefficients[idx] = doublet_coefficient;
-                }
-                
-                // Update offset:
-                offset += d->lifting_surface->n_panels();
-            }
-        }
-        
+*/        
         // Compute surface velocity distribution:
         cout << "Solver: Computing surface velocity distribution." << endl;
         
         offset = 0;
 
+        vector<shared_ptr<BodyData> >::iterator bdi;
         for (bdi = bodies.begin(); bdi != bodies.end(); bdi++) {
             shared_ptr<BodyData> bd = *bdi;
             
@@ -834,7 +1039,10 @@ Solver::solve(double dt, bool propagate)
                 
                 #pragma omp parallel
                 {
-                    #pragma omp for schedule(dynamic, 1)
+#if defined(_OPENMP)
+                    int chunk_size = d->surface->n_panels() / omp_get_num_threads();
+#endif
+                    #pragma omp for schedule(static, chunk_size)
                     for (i = 0; i < d->surface->n_panels(); i++)
                         surface_velocities.row(offset + i) = compute_surface_velocity(bd->body, d->surface, i);
                 }
@@ -849,7 +1057,10 @@ Solver::solve(double dt, bool propagate)
                 
                 #pragma omp parallel
                 {
-                    #pragma omp for schedule(dynamic, 1)
+#if defined(_OPENMP)
+                    int chunk_size = d->surface->n_panels() / omp_get_num_threads();
+#endif
+                    #pragma omp for schedule(static, chunk_size)
                     for (i = 0; i < d->surface->n_panels(); i++)
                         surface_velocities.row(offset + i) = compute_surface_velocity(bd->body, d->surface, i);
                 }  
@@ -858,16 +1069,103 @@ Solver::solve(double dt, bool propagate)
             }
         }
 
+        // Compute pressure distribution:
+        cout << "Solver: Computing pressure distribution." << endl;
+        compute_pressure_coefficients(dt,time_step) ;
+        
+        // Set new wake panel doublet coefficients:
+        cout << "Solver: Updating wake doublet distribution." << endl;
+        offset = 0;
+        for (bdi = bodies.begin(); bdi != bodies.end(); bdi++) {
+            shared_ptr<BodyData> bd = *bdi;
+            
+            vector<shared_ptr<Body::SurfaceData> >::iterator si;
+            for (si = bd->body->non_lifting_surfaces.begin(); si != bd->body->non_lifting_surfaces.end(); si++)
+                offset += (*si)->surface->n_panels();
+            
+            vector<shared_ptr<Body::LiftingSurfaceData> >::iterator lsi;
+            for (lsi = bd->body->lifting_surfaces.begin(); lsi != bd->body->lifting_surfaces.end(); lsi++) {
+                shared_ptr<Body::LiftingSurfaceData> d = *lsi;
+                
+//                int cur_blade = lsi - bd->body->lifting_surfaces.begin() ;
+                
+                // Set panel doublet coefficient:
+                for (int i = 0; i < d->lifting_surface->n_spanwise_panels(); i++) {
+                    int ind_upper_panel = d->lifting_surface->trailing_edge_upper_panel(i) ;
+                    int ind_lower_panel = d->lifting_surface->trailing_edge_lower_panel(i) ;
+                    
+                    double doublet_coefficient_top    = doublet_coefficients(offset + ind_upper_panel);
+                    double doublet_coefficient_bottom = doublet_coefficients(offset + ind_lower_panel);
+                    
+                    // Morino's Kutta condition: valid for 2D foil sections
+                    // Use the trailing-edge Kutta condition to compute the doublet coefficients of the new wake panels.
+                    double doublet_coefficient = doublet_coefficient_top - doublet_coefficient_bottom;
+                    
+                    // Correction for 2D foils without crossflow
+                    Eigen::Vector3d localVelocity = 0.5 * ( this->freestream_velocity + bd->body->panel_kinematic_velocity(d->lifting_surface, ind_upper_panel ) + 
+                                                            this->freestream_velocity + bd->body->panel_kinematic_velocity(d->lifting_surface, ind_lower_panel ) ) ;
+                    
+                    Eigen::Vector3d rte = d->lifting_surface->panel_collocation_point(ind_upper_panel, false) - 
+                                          d->lifting_surface->panel_collocation_point(ind_lower_panel, false) ;
+                    double add_total_potential = localVelocity.dot(rte) ;
+                    
+                    double add_iterative_kutta = 0.0 ;
+/*                    
+                    // Correction for iterative Kutta condition
+                    if (iter_kutta_step>0) {
+                        
+                        vector<int> &single_panel_nodes_up = d->lifting_surface->panel_nodes[ind_upper_panel];
+                        vector<int> &single_panel_nodes_lo = d->lifting_surface->panel_nodes[ind_lower_panel];
+                        
+                        Eigen::Vector3d localtangent_up = d->lifting_surface->nodes[single_panel_nodes_up[0]] - 
+                                                          d->lifting_surface->nodes[single_panel_nodes_up[3]] ;
+                                                          
+                        Eigen::Vector3d localtangent_lo = d->lifting_surface->nodes[single_panel_nodes_lo[3]] - 
+                                                          d->lifting_surface->nodes[single_panel_nodes_lo[0]] ;
+                        
+                        Eigen::Vector3d localtangent = 0.5 * ( localtangent_up + localtangent_lo );
+                        
+                        double deltaS    = 0.5 * localtangent.norm();
+                        
+                        localtangent.normalize();
+                        double coslambda = localVelocity.dot(localtangent) / localVelocity.norm() ;
+                        
+                        iter_DeltaCP[cur_blade][i] = pressure_coefficients(offset + ind_upper_panel) - pressure_coefficients(offset + ind_lower_panel);
+                        iter_K      [cur_blade][i] = iter_K[cur_blade][i] * iter_DeltaCP[cur_blade][i] / ( iter_DeltaCP_old[cur_blade][i] - iter_DeltaCP[cur_blade][i] );
+                                                
+                        add_iterative_kutta = iter_K[cur_blade][i] * localVelocity.norm() * deltaS * coslambda ;
+                        
+                        cout << iter_kutta_step << " " << iter_kutta_error << " "<< doublet_coefficient<< " "<< add_total_potential<< " "<< add_iterative_kutta << endl;
+                        
+                        iter_DeltaCP_old[cur_blade][i] = iter_DeltaCP[cur_blade][i] ;
+                        
+                        iter_kutta_error = std::max( iter_kutta_error , abs(iter_K[cur_blade][i]) ) ;
+                        
+                    }
+                    else {
+                        iter_K          [cur_blade][i] = 1. ;
+                        iter_DeltaCP_old[cur_blade][i] = pressure_coefficients(offset + ind_upper_panel) - pressure_coefficients(offset + ind_lower_panel);
+//                        cout << iter_kutta_step << " " << iter_kutta_error << " "<<  iter_DeltaCP_old[cur_blade][i]<< " "<< iter_K[cur_blade][i]<< endl;
+                        
+                    }
+*/                    
+                    int idx = d->wake->n_panels() - d->lifting_surface->n_spanwise_panels() + i;
+                    d->wake->doublet_coefficients[idx] = doublet_coefficient + add_total_potential + add_iterative_kutta ;
+                }
+                
+                // Update offset:
+                offset += d->lifting_surface->n_panels();
+            }
+        }
+        
         // If we converged, then this is the time to break out of the loop.
         if (converged) {
             cout << "Solver: Boundary layer iteration converged in " << boundary_layer_iteration << " steps." << endl;
-            
             break;
         }
         
         if (boundary_layer_iteration > Parameters::max_boundary_layer_iterations) {
-            cout << "Solver: Maximum number of boundary layer iterations ranged.  Aborting iteration." << endl;
-            
+            cout << "Solver: Maximum number of boundary layer iterations reached.  Aborting iteration." << endl;
             break;
         }
         
@@ -906,12 +1204,15 @@ Solver::solve(double dt, bool propagate)
             offset += body_n_panels;
         }
         
-        // Did we did not find any boundary layers, then there is no need to iterate.
+        // Did we not find any boundary layers, then there is no need to iterate.
+//        if (!have_boundary_layer && (iter_kutta_error<=1.e-6) && (iter_kutta_step>0) )
         if (!have_boundary_layer)
             break;
         
         // Increase iteration counter:
         boundary_layer_iteration++;
+        
+//        iter_kutta_step ++ ;
     }
 
     if (Parameters::convect_wake) {
@@ -929,7 +1230,10 @@ Solver::solve(double dt, bool propagate)
             
             #pragma omp parallel
             {
-                #pragma omp for schedule(dynamic, 1)
+#if defined(_OPENMP)
+                int chunk_size = d->surface->n_panels() / omp_get_num_threads();
+#endif
+                #pragma omp for schedule(static, chunk_size)
                 for (i = 0; i < d->surface->n_panels(); i++)
                     source_coefficients(offset + i) = compute_source_coefficient(bd->body, d->surface, i, bd->boundary_layer, false);
             }
@@ -938,40 +1242,11 @@ Solver::solve(double dt, bool propagate)
         }
     }
 
-    // Compute pressure distribution:
-    cout << "Solver: Computing pressure distribution." << endl;
-    
-    offset = 0;
-
-    vector<shared_ptr<Body::SurfaceData> >::const_iterator si;   
-    for (si = non_wake_surfaces.begin(); si != non_wake_surfaces.end(); si++) {
-        const shared_ptr<Body::SurfaceData> &d = *si;
-        int i;
-        
-        const shared_ptr<BodyData> &bd = surface_to_body.find(d->surface)->second;
-        double v_ref_squared = compute_reference_velocity_squared(bd->body);
-        
-        double dphidt;
-            
-        #pragma omp parallel private(dphidt)
-        {
-            #pragma omp for schedule(dynamic, 1)
-            for (i = 0; i < d->surface->n_panels(); i++) {
-                // Velocity potential:
-                surface_velocity_potentials(offset + i) = compute_surface_velocity_potential(d->surface, offset, i);
-                
-                // Pressure coefficient:
-                dphidt = compute_surface_velocity_potential_time_derivative(offset, i, dt);
-                pressure_coefficients(offset + i) = compute_pressure_coefficient(surface_velocities.row(offset + i), dphidt, v_ref_squared);
-            }
-        }
-        
-        offset += d->surface->n_panels();      
-    }
+    // Compute pressure was here before iterative Kutta condition
     
     // Propagate solution forward in time, if requested.
     if (propagate)
-        this->propagate();
+        this->propagate(time_step);
     
     // Done:
     return true;
@@ -981,10 +1256,35 @@ Solver::solve(double dt, bool propagate)
    Propagates solution forward in time.  Relevant in unsteady mode only.
 */
 void
-Solver::propagate()
+Solver::propagate(const int time_step)
 {
     // Store previous values of the surface velocity potentials:
+    if (time_step>0)
+        previous_previous_surface_velocity_potentials = previous_surface_velocity_potentials;
     previous_surface_velocity_potentials = surface_velocity_potentials;
+}
+
+void Solver::delete_last_wake_layer() {
+    
+    // Do we convect wake panels?
+    if (Parameters::convect_wake) {
+        cout << "Solver: Deleting last row of wakes." << endl;
+        
+        vector<shared_ptr<BodyData> >::const_iterator bdi;
+        for (bdi = bodies.begin(); bdi != bodies.end(); bdi++) {
+            const shared_ptr<BodyData> &bd = *bdi;
+                 
+            vector<shared_ptr<Body::LiftingSurfaceData> >::const_iterator lsi;
+            for (lsi = bd->body->lifting_surfaces.begin(); lsi != bd->body->lifting_surfaces.end(); lsi++) {
+                const shared_ptr<Body::LiftingSurfaceData> &d = *lsi;
+                
+                if (d->wake->delete_last_layer() ) {
+//                    int n_span = d->lifting_surface->n_spanwise_nodes() - 1 ;
+//                    wake_velocities.erase(wake_velocities.begin() , wake_velocities.begin() + n_span);
+                }
+            }
+        }
+    }
 }
 
 /**
@@ -1016,9 +1316,12 @@ Solver::update_wakes(double dt)
                 int i;
                 
                 #pragma omp parallel
-                {
-                    #pragma omp for schedule(dynamic, 1)
-                    for (i = 0; i < d->wake->n_nodes(); i++)
+                {          
+#if defined(_OPENMP)
+                    int chunk_size = d->wake->n_nodes() / omp_get_num_threads();
+#endif                
+                    #pragma omp for schedule(static, chunk_size)
+                    for (i = 0; i < d->wake->n_nodes(); i++) 
                         local_wake_velocities[i] = velocity(d->wake->nodes[i]);
                 }
                 
@@ -1051,7 +1354,10 @@ Solver::update_wakes(double dt)
                 
                 #pragma omp parallel
                 {
-                    #pragma omp for schedule(dynamic, 1)
+#if defined(_OPENMP)
+                    int chunk_size = (d->wake->n_nodes() - d->lifting_surface->n_spanwise_nodes()) / omp_get_num_threads();
+#endif
+                    #pragma omp for schedule(static, chunk_size)
                     for (i = 0; i < d->wake->n_nodes() - d->lifting_surface->n_spanwise_nodes(); i++)
                         d->wake->nodes[i] += local_wake_velocities[i] * dt;
                 }
@@ -1065,7 +1371,8 @@ Solver::update_wakes(double dt)
             }
         }
         
-    } else {
+    }
+    else {
         cout << "Solver: Re-positioning wakes." << endl;
         
         // No wake convection.  Re-position wake:
@@ -1229,7 +1536,7 @@ Solver::log(int step_number, SurfaceWriter &writer) const
         }
     }
 }
- 
+
 // Compute source coefficient for given surface and panel:
 double
 Solver::compute_source_coefficient(const std::shared_ptr<Body> &body, const std::shared_ptr<Surface> &surface, int panel, const std::shared_ptr<BoundaryLayer> &boundary_layer, bool include_wake_influence) const
@@ -1277,10 +1584,9 @@ Solver::compute_surface_velocity_potential(const std::shared_ptr<Surface> &surfa
     double phi = -doublet_coefficients(offset + panel);
     
     // Add flow potential due to kinematic velocity:
-    const shared_ptr<BodyData> &bd = surface_to_body.find(surface)->second;
-    Vector3d apparent_velocity = bd->body->panel_kinematic_velocity(surface, panel) - freestream_velocity;
-    
-    phi -= apparent_velocity.dot(surface->panel_collocation_point(panel, false));
+//    const shared_ptr<BodyData> &bd = surface_to_body.find(surface)->second;
+//    Vector3d apparent_velocity = bd->body->panel_kinematic_velocity(surface, panel) - freestream_velocity;
+//    phi -= apparent_velocity.dot(surface->panel_collocation_point(panel, false));
     
     return phi;
 }
@@ -1297,14 +1603,18 @@ Solver::compute_surface_velocity_potential(const std::shared_ptr<Surface> &surfa
    @returns Velocity potential time derivative.
 */ 
 double
-Solver::compute_surface_velocity_potential_time_derivative(int offset, int panel, double dt) const
+Solver::compute_surface_velocity_potential_time_derivative(int offset, int panel, double dt, const int time_step) const
 {
     double dphidt;
     
     // Evaluate the time-derivative of the potential in a body-fixed reference frame, as in
     //   J. P. Giesing, Nonlinear Two-Dimensional Unsteady Potential Flow with Lift, Journal of Aircraft, 1968.
-    if (Parameters::unsteady_bernoulli && dt > 0.0)
-        dphidt = (surface_velocity_potentials(offset + panel) - previous_surface_velocity_potentials(offset + panel)) / dt;
+    if (Parameters::unsteady_bernoulli && dt > 0.0){
+        if (time_step>0) 
+            dphidt = (1.5*surface_velocity_potentials(offset + panel) - 2.0*previous_surface_velocity_potentials(offset + panel) + 0.5*previous_previous_surface_velocity_potentials(offset + panel)) / dt;
+        else
+            dphidt = (surface_velocity_potentials(offset + panel) - previous_surface_velocity_potentials(offset + panel)) / dt;
+    }
     else
         dphidt = 0.0;
         
@@ -1380,7 +1690,7 @@ Solver::compute_surface_velocity(const std::shared_ptr<Body> &body, const std::s
 
     // Add flow due to kinematic velocity:
     Vector3d apparent_velocity = body->panel_kinematic_velocity(surface, panel) - freestream_velocity;
-                                          
+    
     tangential_velocity -= apparent_velocity;
     
     // Remove any normal velocity.  This is the (implicit) contribution of the source term.
@@ -1392,6 +1702,17 @@ Solver::compute_surface_velocity(const std::shared_ptr<Body> &body, const std::s
 }
 
 /**
+   Returns the square of the reference velocity for the given surface/panel.
+   
+   @returns Square of the reference velocity.
+*/
+double
+Solver::compute_local_reference_velocity_squared(const std::shared_ptr<Body> &body, const std::shared_ptr<Surface> &surface, int panel) const
+{
+    Vector3d apparent_velocity = body->panel_kinematic_velocity(surface, panel) + freestream_velocity;
+    return apparent_velocity.squaredNorm();
+}
+/**
    Returns the square of the reference velocity for the given body.
    
    @param[in]   body   Body to establish reference velocity for.
@@ -1402,6 +1723,53 @@ double
 Solver::compute_reference_velocity_squared(const std::shared_ptr<Body> &body) const
 {
     return (body->velocity - freestream_velocity).squaredNorm();
+}
+
+/**
+   Computes the pressure coefficient.
+*/
+void Solver::compute_pressure_coefficients(const double dt, const int time_step) {
+    int offset = 0;
+
+    vector<shared_ptr<Body::SurfaceData> >::const_iterator si;   
+    for (si = non_wake_surfaces.begin(); si != non_wake_surfaces.end(); si++) {
+        const shared_ptr<Body::SurfaceData> &d = *si;
+        int i;
+        
+        const shared_ptr<BodyData> &bd = surface_to_body.find(d->surface)->second;
+//        double v_ref_squared = compute_reference_velocity_squared(bd->body);
+        
+        double v_ref_squared ;
+        double dphidt;
+        double surface_area ;
+        Eigen::Vector3d surface_velocity;
+        #pragma omp parallel private(dphidt,v_ref_squared,surface_area,surface_velocity)
+        {
+#if defined(_OPENMP)
+            int chunk_size = d->surface->n_panels() / omp_get_num_threads();
+#endif
+            #pragma omp for schedule(static, chunk_size)
+            for (i = 0; i < d->surface->n_panels(); i++) {
+                
+                v_ref_squared = compute_local_reference_velocity_squared(bd->body, d->surface, i) ;
+                dphidt        = compute_surface_velocity_potential_time_derivative(offset, i, dt, time_step);
+                surface_area  = d->surface->panel_surface_area(i);
+                surface_velocity = surface_velocities.row(offset + i) ;
+                
+                // Velocity potential:
+                surface_velocity_potentials(offset + i) = compute_surface_velocity_potential(d->surface, offset, i);
+                
+                // Pressure coefficient:
+                pressure_coefficients(offset + i) = 
+                          1.0 - (surface_velocity.squaredNorm() + 2.0 * dphidt) / v_ref_squared;
+                          // compute_pressure_coefficient(surface_velocities.row(offset + i), dphidt, v_ref_squared);
+                
+                pressures(offset + i) = 
+                          static_pressure + pressure_coefficients(offset + i) * 0.5 * fluid_density * surface_area * v_ref_squared ;
+            }
+        }
+        offset += d->surface->n_panels();      
+    }
 }
 
 /**

@@ -144,23 +144,26 @@ SurfaceBuilder::create_panels_between_shapes(const vector<int> &first_nodes, con
             Vector3d normal = eigenvectors.col(min_eigenvalue_index);
                 
             // Create new points by projecting onto surface spanned by dominant directions:
-            Vector3d vertices[4];
-            for (int i = 0; i < 4; i++)
-                vertices[i] = surface.nodes[unique_nodes[i]] - (normal * X.row(i)) * normal; 
+//            Vector3d vertices[4];
+//            for (int i = 0; i < 4; i++)
+//                vertices[i] = surface.nodes[unique_nodes[i]] - (normal * X.row(i)) * normal; 
 
             // Add points to surface:
             int new_nodes[4];
             for (int j = 0; j < 4; j++) {
                 // If the new points don't match the original ones, create new nodes:
-                if ((vertices[j] - surface.nodes[unique_nodes[j]]).norm() < Parameters::zero_threshold) {
-                    new_nodes[j] = unique_nodes[j];
-                } else {         
-                    new_nodes[j] = surface.nodes.size();
+//                if ((vertices[j] - surface.nodes[unique_nodes[j]]).norm() < Parameters::zero_threshold) {
+//                    new_nodes[j] = unique_nodes[j]; 
+//                } else {         
+//                    new_nodes[j] = surface.nodes.size();
                     
-                    surface.nodes.push_back(vertices[j]);
+//                    surface.nodes.push_back(vertices[j]);
                     
-                    surface.node_panel_neighbors.push_back(surface.node_panel_neighbors[unique_nodes[j]]);
-                }
+//                    surface.node_panel_neighbors.push_back(surface.node_panel_neighbors[unique_nodes[j]]);
+//                }
+
+                new_nodes[j] = unique_nodes[j];
+                surface.nodes[unique_nodes[j]] = surface.nodes[unique_nodes[j]] - (normal * X.row(j)) * normal;
             }
             
             // Add planar quadrangle:

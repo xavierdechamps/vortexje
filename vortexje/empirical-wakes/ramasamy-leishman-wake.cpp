@@ -66,8 +66,7 @@ RamasamyLeishmanWake::RamasamyLeishmanWake(std::shared_ptr<LiftingSurface> lifti
 /**
    Adds new layer of wake panels.
 */
-void
-RamasamyLeishmanWake::add_layer()
+void RamasamyLeishmanWake::add_layer()
 {
     // Add layer:
     this->Wake::add_layer();
@@ -101,6 +100,24 @@ RamasamyLeishmanWake::add_layer()
             base_edge_lengths.push_back(edge_lengths);
         }
     }
+}
+
+
+bool RamasamyLeishmanWake::delete_last_layer() {
+    int n_span = lifting_surface->n_spanwise_panels() ;
+    
+    // Is this the first layer?
+    if (n_panels() < n_span)
+        return false;
+    
+    // Add layer:
+    this->Wake::delete_last_layer();
+    
+    // erase from first to last panel nodes
+    vortex_core_radii.erase( vortex_core_radii.begin() , vortex_core_radii.begin() + n_span );
+    base_edge_lengths.erase( base_edge_lengths.begin() , base_edge_lengths.begin() + n_span );
+    
+    return true ;
 }
 
 /**
@@ -272,7 +289,10 @@ RamasamyLeishmanWake::update_properties(double dt)
     
     #pragma omp parallel
     {
-        #pragma omp for schedule(dynamic, 1)
+#if defined(_OPENMP)
+        int chunk_size = n_panels() / omp_get_num_threads();
+#endif 
+        #pragma omp for schedule(static, chunk_size)
         for (i = 0; i < n_panels(); i++)
             update_vortex_ring_radii(i, dt);
     }

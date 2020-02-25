@@ -213,6 +213,7 @@ Surface::compute_geometry(int panel)
 {
     // Resize arrays, if necessary:
     panel_normals.resize(n_panels());
+    panel_tangents.resize(n_panels());
     panel_collocation_points[0].resize(n_panels());
     panel_collocation_points[1].resize(n_panels());
     panel_coordinate_transformations.resize(n_panels());
@@ -222,21 +223,25 @@ Surface::compute_geometry(int panel)
     // Get panel nodes:
     vector<int> &single_panel_nodes = panel_nodes[panel];
     
-    // Normal:
+    // Normal and Surface area:
     Vector3d normal;
+    double surface_area = 0.0;
     if (single_panel_nodes.size() == 3) {
         Vector3d AB = nodes[single_panel_nodes[1]] - nodes[single_panel_nodes[0]];
         Vector3d AC = nodes[single_panel_nodes[2]] - nodes[single_panel_nodes[0]];
         
         normal = AB.cross(AC);
+        surface_area = 0.5 * normal.norm();
         
     } else { // 4 sides
         Vector3d AC = nodes[single_panel_nodes[2]] - nodes[single_panel_nodes[0]];
         Vector3d BD = nodes[single_panel_nodes[3]] - nodes[single_panel_nodes[1]];
         
         normal = AC.cross(BD);
+        surface_area = 0.5 * normal.norm();
     }
-
+    panel_surface_areas[panel] = surface_area;
+    
     normal.normalize();
 
     panel_normals[panel] = normal;
@@ -257,6 +262,8 @@ Surface::compute_geometry(int panel)
     Vector3d AB = nodes[single_panel_nodes[1]] - nodes[single_panel_nodes[0]];
     AB.normalize();
     
+    panel_tangents[panel] = AB;
+    
     Matrix3d rotation;
     rotation.row(0) = AB;
     rotation.row(1) = normal.cross(AB).normalized(); // Should be normalized already.
@@ -275,7 +282,7 @@ Surface::compute_geometry(int panel)
     panel_transformed_points[panel] = single_panel_transformed_points;
     
     // Surface area: 
-    double surface_area = 0.0;
+/*    double surface_area = 0.0;
     if (single_panel_nodes.size() == 3) {
         Vector3d AB = nodes[single_panel_nodes[1]] - nodes[single_panel_nodes[0]];
         Vector3d AC = nodes[single_panel_nodes[2]] - nodes[single_panel_nodes[0]];
@@ -289,7 +296,7 @@ Surface::compute_geometry(int panel)
         surface_area = 0.5 * AC.cross(BD).norm();
     }
     
-    panel_surface_areas[panel] = surface_area;
+    panel_surface_areas[panel] = surface_area;*/
 }
 
 /**
@@ -415,6 +422,19 @@ const Vector3d &
 Surface::panel_normal(int panel) const
 {
     return panel_normals[panel];
+}
+
+/**
+   Returns the tangent of the given panel.
+   
+   @param[in]   panel   Panel of which the tangent is returned.
+   
+   @returns Tangent.
+*/
+const Vector3d &
+Surface::panel_tangent(int panel) const
+{
+    return panel_tangents[panel];
 }
 
 /**

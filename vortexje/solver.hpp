@@ -85,16 +85,19 @@ public:
        Density of the fluid.
     */
     double fluid_density;
+    double static_pressure;
     
     void set_fluid_density(double value);
+    void set_static_pressure(double value);
     
     void initialize_wakes(double dt = 0.0);
     
+    void delete_last_wake_layer();
     void update_wakes(double dt = 0.0);
     
-    bool solve(double dt = 0.0, bool propagate = true);
+    bool solve(const double dt = 0.0, const int time_step=0, bool propagate = true);
     
-    void propagate();
+    void propagate(const int time_step);
     
     double velocity_potential(const Eigen::Vector3d &x) const;
     
@@ -105,13 +108,17 @@ public:
     Eigen::Vector3d surface_velocity(const std::shared_ptr<Surface> &surface, int panel) const;
     
     double pressure_coefficient(const std::shared_ptr<Surface> &surface, int panel) const;
+    double pressure(const std::shared_ptr<Surface> &surface, int panel) const;
     
     Eigen::Vector3d force(const std::shared_ptr<Body> &body) const;
     Eigen::Vector3d force(const std::shared_ptr<Surface> &surface) const;
-    
+    vector_aligned<Eigen::Vector3d> force_per_span(const std::shared_ptr<LiftingSurface> &surface) const;
+
     Eigen::Vector3d moment(const std::shared_ptr<Body> &body, const Eigen::Vector3d &x) const;
     Eigen::Vector3d moment(const std::shared_ptr<Surface> &surface, const Eigen::Vector3d &x) const;
     
+    vector_aligned<double> get_effective_angle_attack(const std::shared_ptr<LiftingSurface> &surface) const ;
+
     /**
        Data structure bundling a Surface, a panel ID, and a point on the panel.
        
@@ -155,6 +162,7 @@ private:
     std::string log_folder;
     
     std::vector<std::shared_ptr<Body::SurfaceData> > non_wake_surfaces;
+//    std::vector<std::shared_ptr<Body::LiftingSurfaceData> > lifting_surfaces;
     int n_non_wake_panels;
     
     std::map<std::shared_ptr<Surface>, std::shared_ptr<BodyData> > surface_to_body;
@@ -165,20 +173,24 @@ private:
     Eigen::VectorXd surface_velocity_potentials;
     Eigen::MatrixXd surface_velocities;
     Eigen::VectorXd pressure_coefficients;  
+    Eigen::VectorXd pressures;  
     
     Eigen::VectorXd previous_surface_velocity_potentials; 
+    Eigen::VectorXd previous_previous_surface_velocity_potentials; 
                                           
     double compute_source_coefficient(const std::shared_ptr<Body> &body, const std::shared_ptr<Surface> &surface, int panel,
                                       const std::shared_ptr<BoundaryLayer> &boundary_layer, bool include_wake_influence) const;
     
     double compute_surface_velocity_potential(const std::shared_ptr<Surface> &surface, int offset, int panel) const;
     
-    double compute_surface_velocity_potential_time_derivative(int offset, int panel, double dt) const;
+    double compute_surface_velocity_potential_time_derivative(int offset, int panel, double dt, const int time_step) const;
     
     Eigen::Vector3d compute_surface_velocity(const std::shared_ptr<Body> &body, const std::shared_ptr<Surface> &surface, int panel) const;
     
     double compute_reference_velocity_squared(const std::shared_ptr<Body> &body) const;
-
+    double compute_local_reference_velocity_squared(const std::shared_ptr<Body> &body, const std::shared_ptr<Surface> &surface, int panel) const ;
+    
+    void compute_pressure_coefficients(const double dt, const int time_step);
     double compute_pressure_coefficient(const Eigen::Vector3d &surface_velocity, double dphidt, double v_ref) const;
     
     Eigen::Vector3d compute_velocity_interpolated(const Eigen::Vector3d &x, std::set<int> &ignore_set) const;

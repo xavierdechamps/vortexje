@@ -51,7 +51,11 @@ macro(set_cxx_norm NORM)
         if(${NORM} EQUAL ${CXX_NORM_CXX11})
             add_definitions("-std=c++0x")
         endif()
-
+        
+    elseif(${CMAKE_CXX_COMPILER_ID} STREQUAL "Intel")
+        if(${NORM} EQUAL ${CXX_NORM_CXX11})
+            add_definitions("-Qstd=c++11")
+        endif()
     endif()
 
 endmacro()

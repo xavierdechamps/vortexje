@@ -11,6 +11,8 @@
 
 #include <Eigen/Core>
 
+#include <iostream>
+#include <math.h> // sinus in motion_beam_nodes
 #include <vortexje/surface.hpp>
 
 namespace Vortexje
@@ -70,7 +72,21 @@ public:
     
     void finish_trailing_edge();
     
+    /**
+    create_beam_nodes     : Build the beam of the lifting surface
+    motion_beam_nodes     : Impose a motion to the beam
+    beam_nodes            : Coordinates of the beam nodes
+    beam_nodes_collocation: Coordinates of the beam nodes at collocation nodes
+    */
+    void create_beam_nodes();
+    void motion_beam_nodes(const double &time, const double &dt,vector_aligned< Eigen::Transform<double, 3, Eigen::Affine> > &transforms_TE);
+    vector_aligned<Eigen::Vector3d> beam_nodes;
+    vector_aligned<Eigen::Vector3d> beam_nodes_collocation;
+    bool beam_is_there;
+    double beam_location;
+    
     virtual void transform(const Eigen::Transform<double, 3, Eigen::Affine> &transformation);
+    void transform_bisectors_wake_normals(const Eigen::Transform<double, 3, Eigen::Affine> &transformation) ;
     
     virtual Eigen::Vector3d wake_emission_velocity(const Eigen::Vector3d &apparent_velocity, int node_index) const;
     

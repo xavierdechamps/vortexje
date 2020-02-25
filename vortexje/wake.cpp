@@ -17,7 +17,7 @@ using namespace Vortexje;
 static const double pi = 3.141592653589793238462643383279502884;
 
 // Avoid having to divide by 4 pi all the time:
-static const double one_over_4pi = 1.0 / (4 * pi);
+static const double one_over_4pi = 0.25 / pi;
 
 /**
    Constructs an empty wake.
@@ -33,8 +33,7 @@ Wake::Wake(shared_ptr<LiftingSurface> lifting_surface)
    Adds new layer of wake panels.
 */
 void
-Wake::add_layer()
-{
+Wake::add_layer(){
     // Is this the first layer?
     bool first_layer;
     if (n_nodes() < lifting_surface->n_spanwise_nodes())
@@ -77,14 +76,51 @@ Wake::add_layer()
     }
 }
 
+bool 
+Wake::delete_last_layer(){
+    int n_span = lifting_surface->n_spanwise_panels() ;
+        
+    // Is this the first layer?
+    if (n_panels() < n_span)
+        return false;
+    
+    // Erase the first free row of wake 
+    panel_nodes.erase         (panel_nodes.begin()          , panel_nodes.begin()          + n_span    ); // Contains n_spanwise_panels()
+    panel_neighbors.erase     (panel_neighbors.begin()      , panel_neighbors.begin()      + n_span    ); 
+    node_panel_neighbors.erase(node_panel_neighbors.begin() , node_panel_neighbors.begin() + n_span    ); 
+    doublet_coefficients.erase(doublet_coefficients.begin() , doublet_coefficients.begin() + n_span    ); 
+    
+    // erase the corresponding free wake nodes
+//    nodes.erase               (nodes.begin()                , nodes.begin()                + n_span + 1 ); // Contains n_spanwise_nodes()
+    // If we erase the row in nodes, we have to renumerate panel_nodes = panel_nodes - n_spanwise_nodes()
+    /*
+    for (int k = 0; k < lifting_surface->n_spanwise_nodes(); k++)
+        for (int m = 0; m < 4; m++)
+            panel_nodes[k][m] -= n_spanwise_nodes();
+    */
+    
+    // These are resized in Surface::compute_geometry -> must delete the corresponding row of panels
+    panel_normals.erase                   (panel_normals.begin()                    , panel_normals.begin()                    + n_span ); 
+    panel_tangents.erase                  (panel_tangents.begin()                   , panel_tangents.begin()                   + n_span ); 
+    panel_collocation_points[0].erase     (panel_collocation_points[0].begin()      , panel_collocation_points[0].begin()      + n_span ); 
+    panel_collocation_points[1].erase     (panel_collocation_points[1].begin()      , panel_collocation_points[1].begin()      + n_span ); 
+    panel_coordinate_transformations.erase(panel_coordinate_transformations.begin() , panel_coordinate_transformations.begin() + n_span ); 
+    panel_transformed_points.erase        (panel_transformed_points.begin()         , panel_transformed_points.begin()         + n_span ); 
+    panel_surface_areas.erase             (panel_surface_areas.begin()              , panel_surface_areas.begin()              + n_span ); 
+    
+//    compute_geometry();
+    
+//    cout << " +++++++++ Wake::delete_layer() : " << this->id << " : " << panel_nodes.size() << endl;
+    return true;
+}
+
 /**
    Translates the nodes of the trailing edge.
    
    @param[in]   translation   Translation vector.
 */
 void
-Wake::translate_trailing_edge(const Eigen::Vector3d &translation)
-{
+Wake::translate_trailing_edge(const Eigen::Vector3d &translation){
     if (n_nodes() < lifting_surface->n_spanwise_nodes())
         return;
         
@@ -113,8 +149,7 @@ Wake::translate_trailing_edge(const Eigen::Vector3d &translation)
    @param[in]   transformation   Affine transformation.
 */
 void
-Wake::transform_trailing_edge(const Eigen::Transform<double, 3, Eigen::Affine> &transformation)
-{
+Wake::transform_trailing_edge(const Eigen::Transform<double, 3, Eigen::Affine> &transformation){
     if (n_nodes() < lifting_surface->n_spanwise_nodes())
         return;
         
@@ -143,8 +178,7 @@ Wake::transform_trailing_edge(const Eigen::Transform<double, 3, Eigen::Affine> &
    @param[in]   dt   Time step size.
 */
 void
-Wake::update_properties(double dt)
-{
+Wake::update_properties(double dt){
 }
 
 /**
@@ -156,8 +190,7 @@ Wake::update_properties(double dt)
    @returns Velocity induced by the vortex ring.
 */
 Vector3d
-Wake::vortex_ring_unit_velocity(const Eigen::Vector3d &x, int this_panel) const
-{    
+Wake::vortex_ring_unit_velocity(const Eigen::Vector3d &x, int this_panel) const{    
     Vector3d velocity(0, 0, 0);
     
     for (int i = 0; i < (int) panel_nodes[this_panel].size(); i++) {
@@ -203,3 +236,19 @@ Wake::vortex_ring_unit_velocity(const Eigen::Vector3d &x, int this_panel) const
     return one_over_4pi * velocity;
 }
 
+/**
+   Updates the position of the 1st convected nodes at the trailing edge, motion
+   due to beam deformation
+*/
+void
+Wake::motion_beam_nodes(const double &time, const double &dt,
+                        const vector_aligned< Eigen::Transform<double, 3, Eigen::Affine> > &transforms_TE) {
+    
+    
+    for (int i = 0; i < (int)transforms_TE.size(); i++) {
+        this->nodes[ n_nodes() - (int)transforms_TE.size() + i ] = 
+           transforms_TE[i] * nodes[ n_nodes() - (int)transforms_TE.size() + i ] ;
+  //wake->nodes[d->wake->n_nodes() - d->lifting_surface->n_spanwise_nodes() + i]
+    }
+        
+}

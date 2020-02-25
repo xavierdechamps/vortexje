@@ -224,13 +224,34 @@ Body::set_attitude(const Quaterniond &attitude)
     for (lsi = lifting_surfaces.begin(); lsi != lifting_surfaces.end(); lsi++) {
         shared_ptr<LiftingSurfaceData> d = *lsi;
         
-        d->surface->transform(transformation);
+//        d->surface->transform(transformation);
+        d->lifting_surface->transform(transformation);
+        
+        d->lifting_surface->create_beam_nodes();
         
         d->wake->transform_trailing_edge(transformation);
     }
     
     // Update state:
     this->attitude = attitude;
+}
+/**
+   Sets the motion of the beam for lifting surfaces
+   
+   @param[in]  Current physical time + Time increment
+*/
+void 
+Body::set_beam_motion_lifting_surfaces(const double &time, const double &dt){
+        
+    vector<shared_ptr<LiftingSurfaceData> >::iterator lsi;
+    for (lsi = lifting_surfaces.begin(); lsi != lifting_surfaces.end(); lsi++) {
+        shared_ptr<LiftingSurfaceData> d = *lsi;
+        
+        if (d->lifting_surface->beam_is_there){
+            d->lifting_surface->motion_beam_nodes(time,dt,d->transforms_TE);
+            d->wake->motion_beam_nodes(time,dt,d->transforms_TE);
+        }
+    }
 }
 
 /**

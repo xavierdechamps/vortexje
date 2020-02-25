@@ -85,6 +85,12 @@ public:
            Associated wake object.
         */
         std::shared_ptr<Wake> wake;
+        
+        /**
+           Transform operator for the trailing edge nodes, motion due to beam deformation,
+           see LiftingSurface -> motion_beam_nodes
+        */
+        vector_aligned< Eigen::Transform<double, 3, Eigen::Affine> > transforms_TE ;
     };
     
     /**
@@ -185,6 +191,8 @@ public:
 
     void set_position(const Eigen::Vector3d &position);
     void set_attitude(const Eigen::Quaterniond &attitude);
+    
+    void set_beam_motion_lifting_surfaces(const double &time, const double &dt);
     
     void set_velocity(const Eigen::Vector3d &velocity);
     void set_rotational_velocity(const Eigen::Vector3d &rotational_velocity);

@@ -14,9 +14,13 @@ set(CMAKE_MODULE_PATH ${PROJECT_SOURCE_DIR}/cmake)
 find_package(Eigen3 3.2.2 REQUIRED)
 
 # Base compiler flags
-if(CMAKE_COMPILER_IS_GNUCXX)
+#if(CMAKE_COMPILER_IS_GNUCXX)
+if(${CMAKE_CXX_COMPILER_ID} STREQUAL "GNU")
     set(CMAKE_CXX_FLAGS "-O3 -march=native -Wall") # Optimize for this machine, and turn on compiler warnings.
     set(CMAKE_CXX_FLAGS_RELEASE "-O3")             # Optimize for this architecture.
+elseif(${CMAKE_CXX_COMPILER_ID} STREQUAL "Intel")
+    set(CMAKE_CXX_FLAGS "-O3 -Qopenmp")
+    set(CMAKE_CXX_FLAGS_RELEASE "-O3 -Qopenmp")
 endif()
 
 # Enable PIC for shared library generation.

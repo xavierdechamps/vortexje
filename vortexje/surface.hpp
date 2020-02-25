@@ -98,6 +98,7 @@ public:
     const Eigen::Vector3d &panel_collocation_point(int panel, bool below_surface) const;
     
     const Eigen::Vector3d &panel_normal(int panel) const;
+    const Eigen::Vector3d &panel_tangent(int panel) const;
     
     const Eigen::Transform<double, 3, Eigen::Affine> &panel_coordinate_transformation(int panel) const;
     
@@ -129,6 +130,11 @@ protected:
        Panel number to normal map.
     */
     vector_aligned<Eigen::Vector3d> panel_normals;
+    
+    /**
+       Panel number to tangent map.
+    */
+    vector_aligned<Eigen::Vector3d> panel_tangents;
     
     /**
        Panel number to panel coordinate transformation map.

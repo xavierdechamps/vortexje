@@ -19,6 +19,8 @@ using namespace Vortexje;
 */
 LiftingSurfaceBuilder::LiftingSurfaceBuilder(LiftingSurface &lifting_surface) : SurfaceBuilder(lifting_surface), lifting_surface(lifting_surface)
 {
+    this->lifting_surface.beam_is_there = false;
+    this->lifting_surface.beam_location = 0.25;
 }
 
 /**
@@ -159,4 +161,14 @@ LiftingSurfaceBuilder::finish(const std::vector<std::vector<int> > &node_strips,
             
     // Finish trailing edge setup.
     lifting_surface.finish_trailing_edge();
+    
+    // Create the beam of the lifting surface
+    lifting_surface.create_beam_nodes();
+}
+
+void
+LiftingSurfaceBuilder::set_beam_location(const double pos) {
+    assert(pos>0.);
+    this->lifting_surface.beam_is_there = true;
+    this->lifting_surface.beam_location = pos;
 }

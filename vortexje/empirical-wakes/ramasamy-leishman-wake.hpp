@@ -29,6 +29,7 @@ public:
     RamasamyLeishmanWake(std::shared_ptr<LiftingSurface> lifting_surface);
     
     void add_layer();
+    bool delete_last_layer();
     
     void update_properties(double dt);
     

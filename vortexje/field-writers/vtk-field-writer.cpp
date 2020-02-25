@@ -79,7 +79,10 @@ VTKFieldWriter::write_velocity_field(const Solver &solver, const std::string &fi
     
     #pragma omp parallel
     {
-        #pragma omp for schedule(dynamic, 1)
+#if defined(_OPENMP)
+        int chunk_size = nx * ny * nz / omp_get_num_threads();
+#endif
+        #pragma omp for schedule(static, chunk_size)
         for (i = 0; i < nx * ny * nz; i++) {
             double x, y, z;
             x = x_min + (i % (nx * ny)) % nx * dx;
@@ -154,7 +157,10 @@ VTKFieldWriter::write_velocity_potential_field(const Solver &solver, const std::
     
     #pragma omp parallel
     {
-        #pragma omp for schedule(dynamic, 1)
+#if defined(_OPENMP)
+        int chunk_size = nx * ny * nz / omp_get_num_threads();
+#endif
+        #pragma omp for schedule(static, chunk_size)
         for (i = 0; i < nx * ny * nz; i++) {
             double x, y, z;
             x = x_min + (i % (nx * ny)) % nx * dx;

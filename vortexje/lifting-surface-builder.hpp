@@ -37,6 +37,8 @@ public:
     std::vector<int> create_panels_inside_airfoil(const std::vector<int> &airfoil_nodes, int trailing_edge_point_id, int z_sign);
     
     void finish(const std::vector<std::vector<int> > &node_strips, const std::vector<std::vector<int> > &panel_strips, int trailing_edge_point_id);
+    
+    void set_beam_location(const double pos) ;
 };
 
 };
